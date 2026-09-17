@@ -79,6 +79,38 @@ class AnsiTerminalParserTest {
     }
 
     @Test
+    fun tracksPrivateInputModes() {
+        val enabled = AnsiTerminalParser(80, scheme).parse("\u001b[?1h\u001b[?2004h")
+        val disabled = AnsiTerminalParser(80, scheme).parse("\u001b[?1h\u001b[?1l\u001b[?2004h\u001b[?2004l")
+
+        assertEquals(true, enabled.applicationCursor)
+        assertEquals(true, enabled.bracketedPaste)
+        assertEquals(false, disabled.applicationCursor)
+        assertEquals(false, disabled.bracketedPaste)
+    }
+
+    @Test
+    fun preservesPrivateModesWhenRetainedTranscriptHasNoToggle() {
+        val grid = AnsiTerminalParser(
+            columns = 80,
+            scheme = scheme,
+            initialBracketedPaste = true,
+            initialApplicationCursor = true,
+        ).parse("retained tail")
+
+        assertEquals(true, grid.applicationCursor)
+        assertEquals(true, grid.bracketedPaste)
+    }
+
+    @Test
+    fun distinguishesSoftWrapFromHardLineBreak() {
+        val grid = AnsiTerminalParser(3, scheme).parse("abcX\r\nY")
+
+        assertEquals(false, 0 in grid.hardBreakRows)
+        assertEquals(true, 1 in grid.hardBreakRows)
+    }
+
+    @Test
     fun ignoresOscWindowTitle() {
         val grid = AnsiTerminalParser(80, scheme).parse("A\u001b]0;title\u0007B")
         assertEquals("A", grid.lines[0][0]?.text)

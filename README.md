@@ -9,7 +9,7 @@ A native Android 8.0+ SSH client built with Kotlin, Jetpack Compose, Material 3,
 - Connection create/edit/delete/search, swipe delete and long-press multi-select
 - Password, private-key and private-key plus password authentication
 - Strict SSH host-key verification with explicit SHA256 trust-on-first-use; changed keys are blocked
-- Multi-tab ANSI/VT terminal with cell-accurate CJK/Nerd Font layout, ANSI 16/xterm-256/TrueColor foregrounds and backgrounds, scroll, pinch scaling, clipboard actions and Ctrl/Alt/Esc/Tab/arrow keys
+- Multi-tab ANSI/VT terminal with cell-accurate CJK/Nerd Font layout, ANSI 16/xterm-256/TrueColor foregrounds and backgrounds, direct IME input, Termux-style extra keys, text selection/copy/paste, live PTY resize, scroll and pinch scaling
 - Optional reconnect and a `specialUse` foreground service for user-started persistent sessions
 - SFTP browse, SAF upload/download, delete and rename
 - Loopback-only local port forwarding (`127.0.0.1`)
@@ -64,7 +64,7 @@ Install Android SDK 35 and JDK 17, set `ANDROID_HOME` as needed, then run:
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-For local release signing, copy `keystore.properties.example` to `keystore.properties`, point `storeFile` to a local keystore and fill the four values. Both files and keystores are ignored. Without release credentials, `assembleRelease` deliberately falls back to the debug signing key so CI remains buildable.
+For local production signing, copy `keystore.properties.example` to the ignored `keystore.properties`, point `storeFile` to a private keystore outside the repository and fill the four values. The current workspace uses a fixed private key under `~/.config/androidssh/`; it is never committed and must be backed up securely. Release builds are unsigned when credentials are absent, while debug builds remain installable under the separate `.debug` application ID. CI publishes a release APK only from a tag through the protected `release` environment.
 
 ## Fonts
 
@@ -91,9 +91,9 @@ The foreground service uses `specialUse` because interactive SSH shells and tunn
 
 ## CI/CD
 
-`.github/workflows/android.yml` runs for pushes to `main`/`master`, pull requests, manual dispatches and `v*` tags. It sets up JDK 17/Android SDK, restores Gradle caches, runs unit tests and lint, builds a release APK, and uploads it as an Actions artifact. A tag such as `v1.0.0` also creates a GitHub Release with generated notes and attaches the APK.
+`.github/workflows/android.yml` runs its secret-free debug build, unit tests and lint for pushes to `main`/`master`, pull requests, manual dispatches and `v*` tags. Only a `v*` tag starts the separate `release` environment job, where step-scoped signing Secrets build the release APK. Before upload, CI verifies the signer against the fixed SHA-256 certificate digest `5f37f56f960f88a49b4a7e7ed3c0348307b47b81da6bdac35e07a87b756706d7`; a mismatched or missing key stops publication.
 
-Configure these repository Actions secrets for production signing:
+Configure a protected GitHub Actions environment named `release`, require review for deployments where appropriate, and add these environment secrets. `KEYSTORE_BASE64` must contain the same fixed key whose certificate digest is pinned above; back up that private key securely because losing it makes future in-place upgrades impossible:
 
 | Secret | Value |
 |---|---|
@@ -122,7 +122,9 @@ chmod +x scripts/publish.sh
 
 ## Known limitations
 
-The built-in terminal implements the shell-focused VT/ANSI subset, including cursor movement, erase commands, SGR attributes, xterm-256 colors, TrueColor, OSC filtering and live PTY sizing. It does not yet implement every DEC private mode or alternate-screen behavior; complex full-screen applications may require a future integration with a complete terminal engine. Host-key rotation currently requires explicit data maintenance rather than in-app replacement, by design. Integration tests against a disposable SSH server and physical API 26/35 devices are recommended before production rollout.
+The built-in terminal implements the shell-focused VT/ANSI subset, including cursor movement, erase commands, SGR attributes, xterm-256 colors, TrueColor, OSC filtering and live PTY sizing. The terminal itself is an Android text editor: tapping it opens the IME, committed text is sent directly to SSH, the extra-key row follows the IME or rests at the bottom, and long-press drag selection opens Copy/Paste/Select All actions. Orientation and IME height changes recalculate the PTY rows, columns and pixel size. It does not yet implement every DEC private mode or alternate-screen behavior; complex full-screen applications may require a future integration with a complete terminal engine.
+
+Host-key rotation currently requires explicit data maintenance rather than in-app replacement, by design. Integration tests against a disposable SSH server and physical API 26/35 devices are recommended before production rollout. APKs through `v1.0.1` used per-run debug fallback certificates; installing the first fixed-signer build over one of those versions requires a one-time uninstall unless production signing Secrets were already configured.
 
 ## License
 

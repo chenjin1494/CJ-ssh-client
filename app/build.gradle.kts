@@ -26,8 +26,8 @@ android {
         applicationId = "io.github.chenjin.androidsshclient"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -45,7 +45,7 @@ android {
         debug { applicationIdSuffix = ".debug" }
         release {
             isMinifyEnabled = false
-            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

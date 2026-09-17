@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
@@ -79,6 +81,8 @@ class SshManager @Inject constructor(
         var reader: Job? = null,
         val forwards: MutableSet<Int> = mutableSetOf(),
         @Volatile var ptySize: PtySize = PtySize(120, 36, 0, 0),
+        val resizeMutex: Mutex = Mutex(),
+        var resizeJob: Job? = null,
         var intentionalClose: Boolean = false,
     )
 
@@ -202,9 +206,14 @@ class SshManager @Inject constructor(
         runtimes[tabId]?.let { runtime ->
             val size = PtySize(columns.coerceAtLeast(2), rows.coerceAtLeast(1), width.coerceAtLeast(0), height.coerceAtLeast(0))
             runtime.ptySize = size
-            scope.launch {
-                runCatching { runtime.shell?.setPtySize(size.columns, size.rows, size.width, size.height) }
-                    .onFailure { logger.warn("pty_resize_failed", it) }
+            runtime.resizeJob?.cancel()
+            runtime.resizeJob = scope.launch {
+                delay(75)
+                runtime.resizeMutex.withLock {
+                    if (runtime.ptySize != size) return@withLock
+                    runCatching { runtime.shell?.setPtySize(size.columns, size.rows, size.width, size.height) }
+                        .onFailure { logger.warn("pty_resize_failed", it) }
+                }
             }
         }
     }
@@ -303,6 +312,7 @@ class SshManager @Inject constructor(
     }
 
     private fun closeRuntime(runtime: Runtime) {
+        runtime.resizeJob?.cancel()
         runtime.forwards.toList().forEach { port -> runCatching { runtime.session?.delPortForwardingL("127.0.0.1", port) } }
         runCatching { runtime.input?.close() }
         runtime.shell?.disconnect()

@@ -1,11 +1,10 @@
 package io.github.chenjin.androidsshclient
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Settings
@@ -15,11 +14,8 @@ import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,27 +59,18 @@ fun AndroidSshApp(viewModel: MainViewModel = hiltViewModel()) {
                 restoreState = true
             }
         }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            if (maxWidth >= 840.dp) {
-                Row(Modifier.fillMaxSize()) {
-                    NavigationRail {
-                        destinations.forEach { item ->
-                            NavigationRailItem(selected = route == item.route, onClick = { navigate(item.route) }, icon = { Icon(item.icon, item.label) }, label = { Text(item.label) })
-                        }
-                    }
-                    Box(Modifier.weight(1f)) { AppNavHost(navController, navigate) }
+        Row(Modifier.fillMaxSize().systemBarsPadding()) {
+            NavigationRail {
+                destinations.forEach { item ->
+                    NavigationRailItem(
+                        selected = route == item.route,
+                        onClick = { navigate(item.route) },
+                        icon = { Icon(item.icon, item.label) },
+                        label = { Text(item.label) },
+                    )
                 }
-            } else {
-                Scaffold(
-                    bottomBar = {
-                        NavigationBar {
-                            destinations.forEach { item ->
-                                NavigationBarItem(selected = route == item.route, onClick = { navigate(item.route) }, icon = { Icon(item.icon, item.label) }, label = { Text(item.label) })
-                            }
-                        }
-                    },
-                ) { padding -> Box(Modifier.fillMaxSize().padding(padding)) { AppNavHost(navController, navigate) } }
             }
+            Box(Modifier.weight(1f).fillMaxSize()) { AppNavHost(navController, navigate) }
         }
         prompt?.let { request ->
             AlertDialog(

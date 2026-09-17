@@ -10,19 +10,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -32,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -44,13 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.chenjin.androidsshclient.core.ssh.SshStatus
+import io.github.chenjin.androidsshclient.core.terminal.TerminalColorSchemes
+import io.github.chenjin.androidsshclient.core.terminal.TerminalKey
 import io.github.chenjin.androidsshclient.core.terminal.TerminalView
 
 @Composable
@@ -63,11 +63,11 @@ fun TerminalScreen(
     val selected by viewModel.selectedId.collectAsStateWithLifecycle()
     val active = tabs.firstOrNull { it.id == selected } ?: tabs.lastOrNull()
     LaunchedEffect(active?.id) { viewModel.selectedId.value = active?.id }
-    val view = LocalView.current
-    DisposableEffect(view, settings.keepScreenOn) {
-        val previous = view.keepScreenOn
-        view.keepScreenOn = settings.keepScreenOn
-        onDispose { view.keepScreenOn = previous }
+    val hostView = LocalView.current
+    DisposableEffect(hostView, settings.keepScreenOn) {
+        val previous = hostView.keepScreenOn
+        hostView.keepScreenOn = settings.keepScreenOn
+        onDispose { hostView.keepScreenOn = previous }
     }
 
     if (active == null) {
@@ -83,8 +83,29 @@ fun TerminalScreen(
         return
     }
 
-    Column(Modifier.fillMaxSize().background(Color(0xff101315))) {
-        TabRow(selectedTabIndex = tabs.indexOfFirst { it.id == active.id }.coerceAtLeast(0), containerColor = Color(0xff171b1e), contentColor = Color(0xffd8e2dc)) {
+    val scheme = TerminalColorSchemes.byName(settings.terminalScheme)
+    var ctrl by remember(active.id) { mutableStateOf(false) }
+    var alt by remember(active.id) { mutableStateOf(false) }
+    var terminalView by remember(active.id) { mutableStateOf<TerminalView?>(null) }
+    var pendingMultilinePaste by remember(active.id) { mutableStateOf<String?>(null) }
+    val dispatch: (String) -> Unit = { input ->
+        var payload = input
+        if (ctrl && payload.isNotEmpty()) {
+            val first = payload.first()
+            payload = ((first.uppercaseChar().code and 0x1f).toChar()).toString() + payload.drop(1)
+        }
+        if (alt) payload = "\u001b$payload"
+        viewModel.send(active.id, payload)
+        if (ctrl) ctrl = false
+        if (alt) alt = false
+    }
+
+    Column(Modifier.fillMaxSize().background(Color(scheme.background)).imePadding()) {
+        TabRow(
+            selectedTabIndex = tabs.indexOfFirst { it.id == active.id }.coerceAtLeast(0),
+            containerColor = Color(scheme.background),
+            contentColor = Color(scheme.foreground),
+        ) {
             tabs.forEach { tab ->
                 Tab(
                     selected = tab.id == active.id,
@@ -108,8 +129,11 @@ fun TerminalScreen(
             }
         }
         AndroidView(
-            factory = { context -> TerminalView(context) },
+            factory = { context -> TerminalView(context).also { terminalView = it } },
             update = { terminal ->
+                terminalView = terminal
+                terminal.setInputListener(dispatch)
+                terminal.setPasteConfirmationListener { pendingMultilinePaste = it }
                 terminal.setTerminalSizeListener(active.id) { columns, rows, width, height ->
                     viewModel.resize(active.id, columns, rows, width, height)
                 }
@@ -118,43 +142,83 @@ fun TerminalScreen(
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
-        TerminalInput(active.id, active.transcript, viewModel::send)
+        ExtraKeys(
+            terminalView = terminalView,
+            ctrl = ctrl,
+            alt = alt,
+            background = Color(scheme.background),
+            foreground = Color(scheme.foreground),
+            onToggleCtrl = { ctrl = !ctrl },
+            onToggleAlt = { alt = !alt },
+            onSend = dispatch,
+            onPaste = { text -> terminalView?.paste(text) ?: dispatch(text) },
+            onKeyboard = { terminalView?.focusInput() },
+        )
+    }
+    pendingMultilinePaste?.let { text ->
+        AlertDialog(
+            onDismissRequest = { pendingMultilinePaste = null },
+            title = { Text("粘贴多行文本？") },
+            text = { Text("远端未启用 bracketed paste。继续可能立即执行多条命令。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    terminalView?.pasteConfirmed(text)
+                    pendingMultilinePaste = null
+                }) { Text("继续粘贴") }
+            },
+            dismissButton = { TextButton(onClick = { pendingMultilinePaste = null }) { Text("取消") } },
+        )
     }
 }
 
 @Composable
-private fun TerminalInput(tabId: String, transcript: String, send: (String, String) -> Unit) {
-    var command by remember(tabId) { mutableStateOf("") }
-    var ctrl by remember { mutableStateOf(false) }
-    var alt by remember { mutableStateOf(false) }
+private fun ExtraKeys(
+    terminalView: TerminalView?,
+    ctrl: Boolean,
+    alt: Boolean,
+    background: Color,
+    foreground: Color,
+    onToggleCtrl: () -> Unit,
+    onToggleAlt: () -> Unit,
+    onSend: (String) -> Unit,
+    onPaste: (String) -> Unit,
+    onKeyboard: () -> Unit,
+) {
     val clipboard = LocalClipboardManager.current
-    val keys = listOf("Esc" to "\u001b", "Tab" to "\t", "↑" to "\u001b[A", "↓" to "\u001b[B", "←" to "\u001b[D", "→" to "\u001b[C")
-    Column(Modifier.background(Color(0xff171b1e))) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            AssistChip(onClick = { ctrl = !ctrl }, label = { Text("Ctrl") }, leadingIcon = if (ctrl) ({ Text("●", color = Color(0xff62d9ba)) }) else null)
-            AssistChip(onClick = { alt = !alt }, label = { Text("Alt") }, leadingIcon = if (alt) ({ Text("●", color = Color(0xff62d9ba)) }) else null)
-            keys.forEach { (label, sequence) -> AssistChip(onClick = { send(tabId, sequence) }, label = { Text(label) }) }
-            IconButton(onClick = { clipboard.setText(AnnotatedString(stripAnsi(transcript))) }) { Icon(Icons.Outlined.ContentCopy, "复制全部", tint = Color.White) }
-            IconButton(onClick = { clipboard.getText()?.text?.let { send(tabId, it) } }) { Icon(Icons.Outlined.ContentPaste, "粘贴", tint = Color.White) }
+    val keys = listOf(
+        "ESC" to TerminalKey.ESC, "TAB" to TerminalKey.TAB, "HOME" to TerminalKey.HOME,
+        "↑" to TerminalKey.UP, "END" to TerminalKey.END, "PGUP" to TerminalKey.PAGE_UP,
+        "←" to TerminalKey.LEFT, "↓" to TerminalKey.DOWN, "→" to TerminalKey.RIGHT,
+        "PGDN" to TerminalKey.PAGE_DOWN,
+    )
+    Row(
+        Modifier.fillMaxWidth().background(background).horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AssistChip(onClick = onToggleCtrl, label = { Text("CTRL") }, leadingIcon = if (ctrl) ({ Text("●", color = Color(0xff62d9ba)) }) else null)
+        AssistChip(onClick = onToggleAlt, label = { Text("ALT") }, leadingIcon = if (alt) ({ Text("●", color = Color(0xff62d9ba)) }) else null)
+        AssistChip(onClick = { onSend("/") }, label = { Text("/") })
+        AssistChip(onClick = { onSend("-") }, label = { Text("-") })
+        keys.forEach { (label, key) ->
+            AssistChip(onClick = { onSend(terminalView?.keySequence(key) ?: fallbackKeySequence(key)) }, label = { Text(label) })
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("$", color = Color(0xff62d9ba), style = MaterialTheme.typography.titleMedium)
-            BasicTextField(
-                value = command,
-                onValueChange = { command = it },
-                modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color(0xffe7eee9)),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    var payload = command
-                    if (ctrl && payload.isNotEmpty()) payload = ((payload.first().uppercaseChar().code and 0x1f).toChar()).toString() + payload.drop(1)
-                    if (alt) payload = "\u001b$payload"
-                    send(tabId, "$payload\n"); command = ""; ctrl = false; alt = false
-                }),
-            )
-        }
+        IconButton(onClick = { clipboard.getText()?.text?.let(onPaste) }) { Icon(Icons.Outlined.ContentPaste, "粘贴", tint = foreground) }
+        IconButton(onClick = onKeyboard) { Icon(Icons.Outlined.Keyboard, "显示输入法", tint = foreground) }
     }
+}
+
+private fun fallbackKeySequence(key: TerminalKey): String = when (key) {
+    TerminalKey.ESC -> "\u001b"
+    TerminalKey.TAB -> "\t"
+    TerminalKey.HOME -> "\u001b[H"
+    TerminalKey.UP -> "\u001b[A"
+    TerminalKey.END -> "\u001b[F"
+    TerminalKey.PAGE_UP -> "\u001b[5~"
+    TerminalKey.LEFT -> "\u001b[D"
+    TerminalKey.DOWN -> "\u001b[B"
+    TerminalKey.RIGHT -> "\u001b[C"
+    TerminalKey.PAGE_DOWN -> "\u001b[6~"
 }
 
 private fun statusColor(status: SshStatus): Color = when (status) {
@@ -163,4 +227,3 @@ private fun statusColor(status: SshStatus): Color = when (status) {
     SshStatus.DISCONNECTED -> Color(0xff8b949e)
     else -> Color(0xffffcb6b)
 }
-private fun stripAnsi(value: String): String = value.replace(Regex("\\u001B\\[[0-?]*[ -/]*[@-~]"), "")

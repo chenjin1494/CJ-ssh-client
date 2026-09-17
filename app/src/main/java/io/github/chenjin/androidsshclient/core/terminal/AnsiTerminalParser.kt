@@ -9,14 +9,26 @@ data class TerminalStyle(
 )
 
 data class TerminalCell(val text: String, val width: Int, val style: TerminalStyle, val continuation: Boolean = false)
-data class TerminalGrid(val lines: List<List<TerminalCell?>>, val cursorRow: Int, val cursorColumn: Int)
+data class TerminalGrid(
+    val lines: List<List<TerminalCell?>>,
+    val cursorRow: Int,
+    val cursorColumn: Int,
+    val hardBreakRows: Set<Int> = emptySet(),
+    val bracketedPaste: Boolean = false,
+    val applicationCursor: Boolean = false,
+)
 
 class AnsiTerminalParser(
     private val columns: Int,
     private val scheme: TerminalColorScheme,
     private val screenRows: Int = 24,
+    initialBracketedPaste: Boolean = false,
+    initialApplicationCursor: Boolean = false,
 ) {
     private val rows = mutableListOf<MutableList<TerminalCell?>>(mutableListOf())
+    private val hardBreakRows = mutableSetOf<Int>()
+    private var bracketedPaste = initialBracketedPaste
+    private var applicationCursor = initialApplicationCursor
     private var screenTop = 0
     private var row = 0
     private var column = 0
@@ -38,7 +50,7 @@ class AnsiTerminalParser(
             val codePoint = input.codePointAt(index)
             when {
                 codePoint == 0x1b -> index = consumeEscape(input, index)
-                codePoint == '\n'.code -> indexLine(resetColumn = false)
+                codePoint == '\n'.code -> indexLine(resetColumn = false, hardBreak = true)
                 codePoint == '\r'.code -> { column = 0; wrapPending = false }
                 codePoint == '\b'.code -> { column = (column - 1).coerceAtLeast(0); wrapPending = false }
                 codePoint == '\t'.code -> { column = ((column / 8) + 1) * 8; wrapPending = false }
@@ -47,7 +59,14 @@ class AnsiTerminalParser(
             index += Character.charCount(codePoint)
         }
         val offset = (rows.size - MAX_ROWS).coerceAtLeast(0)
-        return TerminalGrid(rows.drop(offset).map { it.toList() }, (row - offset).coerceAtLeast(0), column)
+        return TerminalGrid(
+            lines = rows.drop(offset).map { it.toList() },
+            cursorRow = (row - offset).coerceAtLeast(0),
+            cursorColumn = column,
+            hardBreakRows = hardBreakRows.mapNotNull { (it - offset).takeIf { adjusted -> adjusted >= 0 } }.toSet(),
+            bracketedPaste = bracketedPaste,
+            applicationCursor = applicationCursor,
+        )
     }
 
     private fun consumeEscape(input: String, start: Int): Int {
@@ -57,8 +76,8 @@ class AnsiTerminalParser(
             ']' -> consumeOsc(input, start + 2)
             '7' -> { savedRow = row; savedColumn = column; start + 1 }
             '8' -> { row = savedRow; column = savedColumn; ensureRow(); start + 1 }
-            'D' -> { indexLine(resetColumn = false); start + 1 }
-            'E' -> { indexLine(resetColumn = true); start + 1 }
+            'D' -> { indexLine(resetColumn = false, hardBreak = true); start + 1 }
+            'E' -> { indexLine(resetColumn = true, hardBreak = true); start + 1 }
             'c' -> { clearAll(); resetStyle(); start + 1 }
             else -> start + 1
         }
@@ -78,7 +97,9 @@ class AnsiTerminalParser(
         var end = from
         while (end < input.length && input[end].code !in 0x40..0x7e) end++
         if (end >= input.length) return input.lastIndex
-        val raw = input.substring(from, end).trimStart('?', '>', '!')
+        val rawParameters = input.substring(from, end)
+        val privateMode = rawParameters.startsWith('?')
+        val raw = rawParameters.trimStart('?', '>', '!')
         val params = raw.replace(':', ';').split(';').map { it.toIntOrNull() ?: 0 }
         val first = params.firstOrNull()?.takeIf { it > 0 } ?: 1
         wrapPending = false
@@ -108,6 +129,15 @@ class AnsiTerminalParser(
             '@' -> insertCharacters(first)
             's' -> { savedRow = row; savedColumn = column }
             'u' -> { row = savedRow.coerceAtLeast(screenTop); column = savedColumn; ensureRow() }
+            'h', 'l' -> if (privateMode) {
+                val enabled = input[end] == 'h'
+                params.forEach { mode ->
+                    when (mode) {
+                        1 -> applicationCursor = enabled
+                        2004 -> bracketedPaste = enabled
+                    }
+                }
+            }
         }
         return end
     }
@@ -194,8 +224,8 @@ class AnsiTerminalParser(
             return
         }
         val width = cellWidth(codePoint)
-        if (wrapPending) indexLine(resetColumn = true)
-        if (column + width > columns) indexLine(resetColumn = true)
+        if (wrapPending) indexLine(resetColumn = true, hardBreak = false)
+        if (column + width > columns) indexLine(resetColumn = true, hardBreak = false)
         ensureRow()
         val line = rows[row]
         ensureColumn(line, column + width - 1)
@@ -262,6 +292,7 @@ class AnsiTerminalParser(
     }
 
     private fun clearActiveScreen() {
+        hardBreakRows.removeAll { it >= screenTop }
         while (rows.size > screenTop) rows.removeAt(rows.lastIndex)
         rows.add(mutableListOf())
         row = screenTop
@@ -270,10 +301,11 @@ class AnsiTerminalParser(
     }
 
     private fun clearAll() {
-        rows.clear(); rows.add(mutableListOf()); screenTop = 0; row = 0; column = 0; wrapPending = false
+        rows.clear(); rows.add(mutableListOf()); hardBreakRows.clear(); screenTop = 0; row = 0; column = 0; wrapPending = false
     }
 
-    private fun indexLine(resetColumn: Boolean) {
+    private fun indexLine(resetColumn: Boolean, hardBreak: Boolean) {
+        if (hardBreak) hardBreakRows += row
         row++
         if (resetColumn) column = 0
         wrapPending = false
