@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Android SSH Client</string>
+    <string name="notification_channel_name">SSH sessions</string>
+    <string name="notification_channel_description">Active encrypted SSH connections</string>
+</resources>
