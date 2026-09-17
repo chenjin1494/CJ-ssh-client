@@ -19,9 +19,9 @@ data class TerminalGrid(
 )
 
 class AnsiTerminalParser(
-    private val columns: Int,
-    private val scheme: TerminalColorScheme,
-    private val screenRows: Int = 24,
+    private var columns: Int,
+    private var scheme: TerminalColorScheme,
+    private var screenRows: Int = 24,
     initialBracketedPaste: Boolean = false,
     initialApplicationCursor: Boolean = false,
 ) {
@@ -43,13 +43,53 @@ class AnsiTerminalParser(
     private var italic = false
     private var underline = false
     private var inverse = false
+    private var pendingInput = ""
+
+    fun resizeScreen(columns: Int = this.columns, rows: Int) {
+        this.columns = columns.coerceAtLeast(2)
+        screenRows = rows.coerceAtLeast(1)
+        column = column.coerceIn(0, this.columns - 1)
+        if (row >= screenTop + screenRows) screenTop = (row - screenRows + 1).coerceAtLeast(0)
+    }
+
+    fun updateScheme(value: TerminalColorScheme) {
+        if (scheme == value) return
+        val previous = scheme
+        fun remap(color: Int): Int {
+            if (color == previous.foreground) return value.foreground
+            if (color == previous.background) return value.background
+            previous.ansi.indexOf(color).takeIf { it >= 0 }?.let { return value.ansi[it] }
+            return color
+        }
+        foreground = remap(foreground)
+        background = remap(background)
+        rows.forEachIndexed { rowIndex, line ->
+            line.forEachIndexed { columnIndex, cell ->
+                if (cell != null) {
+                    line[columnIndex] = cell.copy(
+                        style = cell.style.copy(
+                            foreground = remap(cell.style.foreground),
+                            background = remap(cell.style.background),
+                        ),
+                    )
+                }
+            }
+        }
+        scheme = value
+    }
 
     fun parse(input: String): TerminalGrid {
+        val combined = pendingInput + input
+        val completeLength = completeInputLength(combined)
+        val source = combined.substring(0, completeLength)
+        pendingInput = combined.substring(completeLength).let { pending ->
+            if (pending.length <= MAX_PENDING_SEQUENCE) pending else ""
+        }
         var index = 0
-        while (index < input.length) {
-            val codePoint = input.codePointAt(index)
+        while (index < source.length) {
+            val codePoint = source.codePointAt(index)
             when {
-                codePoint == 0x1b -> index = consumeEscape(input, index)
+                codePoint == 0x1b -> index = consumeEscape(source, index)
                 codePoint == '\n'.code -> indexLine(resetColumn = false, hardBreak = true)
                 codePoint == '\r'.code -> { column = 0; wrapPending = false }
                 codePoint == '\b'.code -> { column = (column - 1).coerceAtLeast(0); wrapPending = false }
@@ -58,15 +98,46 @@ class AnsiTerminalParser(
             }
             index += Character.charCount(codePoint)
         }
-        val offset = (rows.size - MAX_ROWS).coerceAtLeast(0)
+        trimRows()
         return TerminalGrid(
-            lines = rows.drop(offset).map { it.toList() },
-            cursorRow = (row - offset).coerceAtLeast(0),
+            lines = rows.map { it.toList() },
+            cursorRow = row.coerceAtLeast(0),
             cursorColumn = column,
-            hardBreakRows = hardBreakRows.mapNotNull { (it - offset).takeIf { adjusted -> adjusted >= 0 } }.toSet(),
+            hardBreakRows = hardBreakRows.toSet(),
             bracketedPaste = bracketedPaste,
             applicationCursor = applicationCursor,
         )
+    }
+
+    private fun completeInputLength(value: String): Int {
+        val escape = value.lastIndexOf('\u001b')
+        if (escape < 0) return value.length
+        if (escape == value.lastIndex) return escape
+        return when (value[escape + 1]) {
+            '[' -> {
+                val complete = (escape + 2 until value.length).any { value[it].code in 0x40..0x7e }
+                if (complete) value.length else escape
+            }
+            ']' -> {
+                val complete = (escape + 2 until value.length).any { index ->
+                    value[index] == '\u0007' || value[index] == '\u001b' && index + 1 < value.length && value[index + 1] == '\\'
+                }
+                if (complete) value.length else escape
+            }
+            else -> value.length
+        }
+    }
+
+    private fun trimRows() {
+        val count = (rows.size - MAX_ROWS).coerceAtLeast(0)
+        if (count == 0) return
+        rows.subList(0, count).clear()
+        row = (row - count).coerceAtLeast(0)
+        screenTop = (screenTop - count).coerceAtLeast(0)
+        savedRow = (savedRow - count).coerceAtLeast(0)
+        val adjusted = hardBreakRows.mapNotNull { (it - count).takeIf { next -> next >= 0 } }
+        hardBreakRows.clear()
+        hardBreakRows.addAll(adjusted)
     }
 
     private fun consumeEscape(input: String, start: Int): Int {
@@ -321,6 +392,7 @@ class AnsiTerminalParser(
 
     companion object {
         private const val MAX_ROWS = 4000
+        private const val MAX_PENDING_SEQUENCE = 4096
         private const val ZERO_WIDTH_JOINER = 0x200d
 
         fun cellWidth(codePoint: Int): Int {

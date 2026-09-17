@@ -14,8 +14,10 @@ import io.github.chenjin.androidsshclient.core.database.KnownHostDao
 import io.github.chenjin.androidsshclient.core.database.KnownHostEntity
 import io.github.chenjin.androidsshclient.core.logging.SecureLogger
 import io.github.chenjin.androidsshclient.core.model.ConnectionCredentials
+import io.github.chenjin.androidsshclient.core.terminal.TerminalSessionState
 import io.github.chenjin.androidsshclient.data.ConnectionRepository
 import java.io.InputStream
+import java.io.InputStreamReader
 import java.io.OutputStream
 import java.util.Base64
 import java.util.UUID
@@ -48,6 +50,7 @@ data class SshTab(
     val endpoint: String,
     val status: SshStatus,
     val transcript: String = "",
+    val outputLength: Long = 0,
     val error: String? = null,
 )
 
@@ -75,6 +78,7 @@ class SshManager @Inject constructor(
     private data class Runtime(
         val tabId: String,
         val connectionId: Long,
+        val terminalState: TerminalSessionState,
         var session: Session? = null,
         var shell: ChannelShell? = null,
         var input: OutputStream? = null,
@@ -88,6 +92,7 @@ class SshManager @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val runtimes = ConcurrentHashMap<String, Runtime>()
+    private val terminalStates = ConcurrentHashMap<String, TerminalSessionState>()
     private val pendingPrompts = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
     private val _tabs = MutableStateFlow<List<SshTab>>(emptyList())
     private val _prompts = MutableSharedFlow<HostKeyPrompt>(extraBufferCapacity = 4)
@@ -101,8 +106,10 @@ class SshManager @Inject constructor(
                 logger.warn("credential_load_failed", it); return@launch
             }
             val tabId = UUID.randomUUID().toString()
-            val runtime = Runtime(tabId, connectionId)
+            val terminalState = TerminalSessionState()
+            val runtime = Runtime(tabId, connectionId, terminalState)
             runtimes[tabId] = runtime
+            terminalStates[tabId] = terminalState
             val profile = credentials.profile
             putTab(SshTab(tabId, connectionId, profile.name, "${profile.username}@${profile.host}:${profile.port}", SshStatus.CONNECTING))
             try {
@@ -198,6 +205,8 @@ class SshManager @Inject constructor(
         pendingPrompts.remove(requestId)?.complete(accept)
     }
 
+    fun terminalState(tabId: String): TerminalSessionState = terminalStates.getOrPut(tabId) { TerminalSessionState() }
+
     fun send(tabId: String, text: String) {
         scope.launch { runtimes[tabId]?.input?.run { write(text.encodeToByteArray()); flush() } }
     }
@@ -235,6 +244,7 @@ class SshManager @Inject constructor(
 
     fun closeTab(tabId: String) {
         disconnect(tabId)
+        terminalStates.remove(tabId)
         _tabs.update { tabs -> tabs.filterNot { it.id == tabId } }
     }
 
@@ -289,15 +299,20 @@ class SshManager @Inject constructor(
     }
 
     private suspend fun readLoop(runtime: Runtime, input: InputStream, autoReconnect: Boolean) {
-        val bytes = ByteArray(8192)
+        val characters = CharArray(8192)
+        val reader = InputStreamReader(input, Charsets.UTF_8)
         try {
             while (true) {
-                val count = input.read(bytes)
+                val count = reader.read(characters)
                 if (count < 0) break
-                val chunk = bytes.decodeToString(0, count)
+                val chunk = characters.concatToString(0, count)
+                runtime.terminalState.append(chunk)
                 updateTab(runtime.tabId) { tab ->
                     val combined = tab.transcript + chunk
-                    tab.copy(transcript = if (combined.length > MAX_TRANSCRIPT) combined.takeLast(MAX_TRANSCRIPT) else combined)
+                    tab.copy(
+                        transcript = if (combined.length > MAX_TRANSCRIPT) combined.takeLast(MAX_TRANSCRIPT) else combined,
+                        outputLength = tab.outputLength + chunk.length,
+                    )
                 }
             }
         } catch (error: Throwable) {

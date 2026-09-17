@@ -51,4 +51,9 @@ data class AppSettings(
     val keepScreenOn: Boolean = false,
     val logLevel: LogLevel = LogLevel.INFO,
     val terminalScheme: String = "One Dark",
-)
+    val extraKeysLayout: String = DEFAULT_EXTRA_KEYS_LAYOUT,
+) {
+    companion object {
+        const val DEFAULT_EXTRA_KEYS_LAYOUT = "ESC CTRL ALT TAB HOME END PGUP PGDN\n/ - | _ UP _ PASTE KEYBOARD\n_ _ _ LEFT DOWN RIGHT"
+    }
+}

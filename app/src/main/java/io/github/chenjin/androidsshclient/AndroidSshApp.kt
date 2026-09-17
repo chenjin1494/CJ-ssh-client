@@ -1,10 +1,23 @@
 package io.github.chenjin.androidsshclient
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Settings
@@ -14,12 +27,14 @@ import androidx.compose.material.icons.outlined.Workspaces
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -59,17 +74,12 @@ fun AndroidSshApp(viewModel: MainViewModel = hiltViewModel()) {
                 restoreState = true
             }
         }
-        Row(Modifier.fillMaxSize().systemBarsPadding()) {
-            NavigationRail {
-                destinations.forEach { item ->
-                    NavigationRailItem(
-                        selected = route == item.route,
-                        onClick = { navigate(item.route) },
-                        icon = { Icon(item.icon, item.label) },
-                        label = { Text(item.label) },
-                    )
-                }
-            }
+        Row(
+            Modifier.fillMaxSize().windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+            ),
+        ) {
+            PersistentNavigationRail(route = route, onNavigate = navigate)
             Box(Modifier.weight(1f).fillMaxSize()) { AppNavHost(navController, navigate) }
         }
         prompt?.let { request ->
@@ -89,6 +99,30 @@ fun AndroidSshApp(viewModel: MainViewModel = hiltViewModel()) {
                 },
                 dismissButton = { if (!request.changed) TextButton(onClick = { viewModel.answerHostKey(false) }) { Text("取消") } },
             )
+        }
+    }
+}
+
+@Composable
+private fun PersistentNavigationRail(route: String, onNavigate: (String) -> Unit) {
+    Surface(
+        modifier = Modifier.width(76.dp).fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            destinations.forEach { item ->
+                NavigationRailItem(
+                    selected = route == item.route,
+                    onClick = { onNavigate(item.route) },
+                    icon = { Icon(item.icon, item.label) },
+                    label = { Text(item.label) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

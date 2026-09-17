@@ -11,7 +11,7 @@ CJ-ssh-client is a native Android 8.0+ SSH client built with Kotlin, Jetpack Com
 - Connection create/edit/delete/search, swipe delete and long-press multi-select
 - Password, private-key and private-key plus password authentication
 - Strict SSH host-key verification with explicit SHA256 trust-on-first-use; changed keys are blocked
-- Multi-tab ANSI/VT terminal with cell-accurate CJK/Nerd Font layout, ANSI 16/xterm-256/TrueColor foregrounds and backgrounds, direct IME input, Termux-style extra keys, text selection/copy/paste, live PTY resize, scroll and pinch scaling
+- Multi-tab ANSI/VT terminal with incremental output parsing, cell-accurate CJK/Nerd Font layout, ANSI 16/xterm-256/TrueColor foregrounds and backgrounds, direct IME input, customizable multi-row Termux-style extra keys, text selection/copy/paste, live PTY resize, scroll and pinch scaling
 - Optional reconnect and a `specialUse` foreground service for user-started persistent sessions
 - SFTP browse, SAF upload/download, delete and rename
 - Loopback-only local port forwarding (`127.0.0.1`)
@@ -107,8 +107,8 @@ Configure a protected GitHub Actions environment named `release`, require review
 Trigger manually from **Actions > Android CI > Run workflow**, or publish a release:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 Download ordinary builds from the workflow run's **Artifacts** section and release builds from the repository **Releases** page.
@@ -124,7 +124,7 @@ chmod +x scripts/publish.sh
 
 ## Known limitations
 
-The built-in terminal implements the shell-focused VT/ANSI subset, including cursor movement, erase commands, SGR attributes, xterm-256 colors, TrueColor, OSC filtering and live PTY sizing. The terminal itself is an Android text editor: tapping it opens the IME, committed text is sent directly to SSH, the extra-key row follows the IME or rests at the bottom, and long-press drag selection opens Copy/Paste/Select All actions. Orientation and IME height changes recalculate the PTY rows, columns and pixel size. It does not yet implement every DEC private mode or alternate-screen behavior; complex full-screen applications may require a future integration with a complete terminal engine.
+The built-in terminal implements the shell-focused VT/ANSI subset, including cursor movement, erase commands, SGR attributes, xterm-256 colors, TrueColor, OSC filtering and live PTY sizing. Incoming output is parsed incrementally so transcript rollover and IME-only height changes do not replay old zsh/p10k prompts. The terminal itself is an Android text editor: tapping it opens the IME, committed text is sent directly to SSH, the customizable multi-row extra-key panel follows the IME or rests at the bottom, and long-press drag selection opens Copy/Paste/Select All actions. Orientation and IME height changes recalculate the PTY rows, columns and pixel size. It does not yet implement every DEC private mode or alternate-screen behavior; complex full-screen applications may require a future integration with a complete terminal engine.
 
 Host-key rotation currently requires explicit data maintenance rather than in-app replacement, by design. Integration tests against a disposable SSH server and physical API 26/35 devices are recommended before production rollout. APKs through `v1.0.1` used per-run debug fallback certificates; installing the first fixed-signer build over one of those versions requires a one-time uninstall unless production signing Secrets were already configured.
 

@@ -12,7 +12,7 @@ CJ-ssh-client 是一款原生 Android 8.0+ SSH 客户端，使用 Kotlin、Jetpa
 - 密码、私钥以及私钥加密码三种认证方式
 - 严格 SSH 主机密钥校验：首次连接明确显示 SHA256 指纹并要求确认，主机密钥变化时直接阻止连接
 - 多标签 ANSI/VT 终端：精确处理 CJK/Nerd Font 单元格、ANSI 16 色、xterm-256 色和 TrueColor 前景/背景
-- 终端直接接收输入法输入，支持中文等组合输入、Termux 风格扩展键、文本选择、复制、粘贴、滚动和双指缩放
+- 终端直接接收输入法输入，支持中文等组合输入、可自定义的多排 Termux 风格扩展键、文本选择、复制、粘贴、滚动和双指缩放
 - 输入法显示、隐藏以及横竖屏切换时自动调整终端行列和远端 PTY 尺寸
 - 可选自动重连，以及用于用户主动启动的持久会话的 `specialUse` 前台服务
 - SFTP 浏览、SAF 上传/下载、删除和重命名
@@ -119,8 +119,8 @@ app/build/outputs/apk/debug/app-debug.apk
 发布新版本：
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 普通构建可从工作流运行页面的 **Artifacts** 下载；正式版本可从仓库的 **Releases** 页面下载。
@@ -136,7 +136,7 @@ chmod +x scripts/publish.sh
 
 ## 已知限制
 
-内置终端实现面向 shell 的 VT/ANSI 子集，包括光标移动、擦除命令、SGR 属性、xterm-256 色、TrueColor、OSC 过滤、bracketed paste、应用光标模式和动态 PTY 尺寸。终端本身是 Android 文本编辑目标：点击可打开输入法，确认后的文本直接发送到 SSH；扩展键行会位于输入法上方或屏幕底部；长按拖动可选择文本并执行复制、粘贴和全选。
+内置终端实现面向 shell 的 VT/ANSI 子集，包括光标移动、擦除命令、SGR 属性、xterm-256 色、TrueColor、OSC 过滤、bracketed paste、应用光标模式和动态 PTY 尺寸。SSH 输出采用增量状态解析，滚动缓存截断和仅输入法高度变化不会重新回放旧的 zsh/p10k 提示符。终端本身是 Android 文本编辑目标：点击可打开输入法，确认后的文本直接发送到 SSH；可自定义的多排扩展键面板位于输入法上方或屏幕底部，默认方向键使用倒 T 形键盘布局；长按拖动可选择文本并执行复制、粘贴和全选。
 
 当前终端尚未实现全部 DEC 私有模式和完整 alternate-screen 行为，复杂的全屏终端程序未来可能需要接入完整终端引擎。主机密钥轮换目前需要显式清理相关可信记录。正式部署前建议使用一次性 SSH 服务器以及 API 26/35 真机进行集成测试。
 

@@ -111,6 +111,58 @@ class AnsiTerminalParserTest {
     }
 
     @Test
+    fun preservesSplitAnsiSequenceAcrossIncrementalChunks() {
+        val parser = AnsiTerminalParser(80, scheme)
+        parser.parse("\u001b[38;2;255;")
+        val grid = parser.parse("0;0mX")
+
+        assertEquals("X", grid.lines[0][0]?.text)
+        assertEquals(0xffff0000.toInt(), grid.lines[0][0]?.style?.foreground)
+    }
+
+    @Test
+    fun incrementalPromptRedrawReplacesInsteadOfRepeating() {
+        val parser = AnsiTerminalParser(80, scheme)
+        parser.parse("with user@host")
+        val grid = parser.parse("\r\u001b[2Kprompt")
+        val rendered = grid.lines.single().mapNotNull { cell -> cell?.takeUnless { it.continuation }?.text }.joinToString("").trimEnd()
+
+        assertEquals("prompt", rendered)
+    }
+
+    @Test
+    fun resizeKeepsIncrementalScreenWithoutReplayingHistory() {
+        val parser = AnsiTerminalParser(80, scheme, screenRows = 24)
+        parser.parse("user@host prompt")
+        parser.resizeScreen(rows = 10)
+        val grid = parser.parse("")
+
+        assertEquals(1, grid.lines.size)
+        assertEquals("u", grid.lines[0][0]?.text)
+    }
+
+    @Test
+    fun dropsOversizedUnterminatedControlSequence() {
+        val parser = AnsiTerminalParser(80, scheme)
+        parser.parse("\u001b]" + "x".repeat(5000))
+        val grid = parser.parse("OK")
+
+        assertEquals("O", grid.lines[0][0]?.text)
+        assertEquals("K", grid.lines[0][1]?.text)
+    }
+
+    @Test
+    fun resizePreservesExistingParserState() {
+        val parser = AnsiTerminalParser(80, scheme)
+        parser.parse("with user@host")
+        parser.resizeScreen(columns = 40, rows = 10)
+        val grid = parser.parse("\r\u001b[2Kprompt")
+        val rendered = grid.lines.single().mapNotNull { cell -> cell?.takeUnless { it.continuation }?.text }.joinToString("").trimEnd()
+
+        assertEquals("prompt", rendered)
+    }
+
+    @Test
     fun ignoresOscWindowTitle() {
         val grid = AnsiTerminalParser(80, scheme).parse("A\u001b]0;title\u0007B")
         assertEquals("A", grid.lines[0][0]?.text)

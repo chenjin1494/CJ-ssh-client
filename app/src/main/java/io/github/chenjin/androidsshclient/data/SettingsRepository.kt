@@ -40,6 +40,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             keepScreenOn = p[KEEP_SCREEN] ?: false,
             logLevel = p[LOG_LEVEL]?.let { runCatching { LogLevel.valueOf(it) }.getOrNull() } ?: LogLevel.INFO,
             terminalScheme = p[SCHEME] ?: "One Dark",
+            extraKeysLayout = p[EXTRA_KEYS_LAYOUT] ?: AppSettings.DEFAULT_EXTRA_KEYS_LAYOUT,
         )
     }
 
@@ -51,6 +52,11 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         p[LINE_HEIGHT] = value.lineHeight; p[LIGATURES] = value.ligatures
         p[KEEP_SCREEN] = value.keepScreenOn; p[LOG_LEVEL] = value.logLevel.name
         p[SCHEME] = value.terminalScheme
+        p[EXTRA_KEYS_LAYOUT] = value.extraKeysLayout
+    }
+
+    suspend fun updateExtraKeysLayout(value: String) = store.edit { preferences ->
+        preferences[EXTRA_KEYS_LAYOUT] = value
     }
 
     suspend fun importCustomFont(displayName: String, source: InputStream) = withContext(Dispatchers.IO) {
@@ -112,5 +118,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val KEEP_SCREEN = booleanPreferencesKey("keep_screen")
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val SCHEME = stringPreferencesKey("terminal_scheme")
+        val EXTRA_KEYS_LAYOUT = stringPreferencesKey("extra_keys_layout")
     }
 }

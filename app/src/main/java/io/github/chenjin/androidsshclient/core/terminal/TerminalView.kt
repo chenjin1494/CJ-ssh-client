@@ -32,14 +32,57 @@ import kotlin.math.min
 
 enum class TerminalKey { ESC, TAB, HOME, UP, END, PAGE_UP, LEFT, DOWN, RIGHT, PAGE_DOWN }
 
+class TerminalSessionState {
+    private var initialized = false
+    private var endOffset = 0L
+    private var parser: AnsiTerminalParser? = null
+    private var grid = TerminalGrid(listOf(emptyList()), 0, 0)
+
+    @Synchronized
+    fun append(text: String) {
+        if (text.isEmpty()) return
+        val activeParser = parser ?: AnsiTerminalParser(120, TerminalColorSchemes.byName("One Dark")).also {
+            parser = it
+            initialized = true
+        }
+        grid = activeParser.parse(text)
+        endOffset += text.length
+    }
+
+    @Synchronized
+    fun initializeIfNeeded(
+        transcript: String,
+        outputLength: Long,
+        columns: Int,
+        rows: Int,
+        scheme: TerminalColorScheme,
+    ) {
+        if (initialized) return
+        parser = AnsiTerminalParser(columns, scheme, rows)
+        grid = requireNotNull(parser).parse(transcript)
+        endOffset = outputLength
+        initialized = true
+    }
+
+    @Synchronized
+    fun configure(columns: Int, rows: Int, scheme: TerminalColorScheme) {
+        val activeParser = parser ?: AnsiTerminalParser(columns, scheme, rows).also {
+            parser = it
+            initialized = true
+        }
+        activeParser.resizeScreen(columns, rows)
+        activeParser.updateScheme(scheme)
+        grid = activeParser.parse("")
+    }
+
+    @Synchronized
+    fun snapshot(): TerminalGrid = grid
+}
+
 class TerminalView(context: Context) : View(context) {
     private data class CellPosition(val row: Int, val column: Int)
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
-    private var rawText = ""
-    private var bracketedPasteMode = false
-    private var applicationCursorMode = false
-    private var forceReparseOnNextText = false
     private var grid = TerminalGrid(listOf(emptyList()), 0, 0)
     private var scheme = TerminalColorSchemes.byName("One Dark")
     private var terminalFont = TerminalFont.FIRA_CODE
@@ -59,6 +102,7 @@ class TerminalView(context: Context) : View(context) {
     private var pasteConfirmationListener: ((String) -> Unit)? = null
     private var sizeListener: ((columns: Int, rows: Int, width: Int, height: Int) -> Unit)? = null
     private var sizeListenerToken: String? = null
+    private var boundSessionState: TerminalSessionState? = null
     private var lastReportedSize: List<Int> = emptyList()
     private var selectionStart: CellPosition? = null
     private var selectionEnd: CellPosition? = null
@@ -66,7 +110,7 @@ class TerminalView(context: Context) : View(context) {
     private var selectionActionMode: ActionMode? = null
     private val reflowRunnable = Runnable {
         if (selecting) cancelSelection()
-        reparse()
+        resizeParserRows()
         scrollLine = maxScroll().toFloat()
         invalidate()
     }
@@ -75,7 +119,7 @@ class TerminalView(context: Context) : View(context) {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             zoomFactor = (zoomFactor * detector.scaleFactor).coerceIn(9f / baseFontSizeSp, 32f / baseFontSizeSp)
             fontSizeSp = baseFontSizeSp * zoomFactor
-            updateMetrics(reparse = true)
+            updateMetrics()
             return true
         }
     })
@@ -96,16 +140,17 @@ class TerminalView(context: Context) : View(context) {
     init {
         isFocusable = true
         isFocusableInTouchMode = true
-        updateMetrics(reparse = false)
+        updateMetrics()
     }
 
-    fun setTerminalText(value: String) {
-        if (rawText == value && !forceReparseOnNextText) return
-        forceReparseOnNextText = false
+    fun setTerminalText(value: String, endOffset: Long) {
+        val state = boundSessionState ?: return
         if (selecting) cancelSelection()
-        rawText = value
-        reparse()
-        if (!selecting) scrollLine = maxScroll().toFloat()
+        val rows = floor(height.coerceAtLeast(1) / lineHeightPx()).toInt().coerceAtLeast(1)
+        state.initializeIfNeeded(value, endOffset, columns, rows, scheme)
+        state.configure(columns, rows, scheme)
+        grid = state.snapshot()
+        scrollLine = maxScroll().toFloat()
         invalidate()
     }
 
@@ -147,13 +192,18 @@ class TerminalView(context: Context) : View(context) {
 
     fun focusInput() = showKeyboard()
 
-    fun setTerminalSizeListener(token: String, listener: (columns: Int, rows: Int, width: Int, height: Int) -> Unit) {
+    fun setTerminalSizeListener(
+        token: String,
+        state: TerminalSessionState,
+        listener: (columns: Int, rows: Int, width: Int, height: Int) -> Unit,
+    ) {
         sizeListener = listener
         if (sizeListenerToken != token) {
             cancelSelection()
-            bracketedPasteMode = false
-            applicationCursorMode = false
-            forceReparseOnNextText = true
+            boundSessionState = state
+            val rows = floor(height.coerceAtLeast(1) / lineHeightPx()).toInt().coerceAtLeast(1)
+            state.configure(columns, rows, scheme)
+            grid = state.snapshot()
             sizeListenerToken = token
             lastReportedSize = emptyList()
         }
@@ -169,8 +219,9 @@ class TerminalView(context: Context) : View(context) {
         customFontRevision: Long = 0,
     ) {
         val nextScheme = TerminalColorSchemes.byName(schemeName)
+        val schemeChanged = scheme != nextScheme
         val changed = baseFontSizeSp != fontSize || lineHeightScale != lineHeight || this.ligatures != ligatures ||
-            terminalFont != font || scheme != nextScheme || this.customFontRevision != customFontRevision
+            terminalFont != font || schemeChanged || this.customFontRevision != customFontRevision
         baseFontSizeSp = fontSize.coerceIn(9f, 32f)
         fontSizeSp = (baseFontSizeSp * zoomFactor).coerceIn(9f, 32f)
         lineHeightScale = lineHeight.coerceIn(1f, 1.8f)
@@ -178,7 +229,7 @@ class TerminalView(context: Context) : View(context) {
         terminalFont = font
         this.customFontRevision = customFontRevision
         scheme = nextScheme
-        if (changed) updateMetrics(reparse = true)
+        if (changed) updateMetrics() else refreshBoundState()
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -247,7 +298,7 @@ class TerminalView(context: Context) : View(context) {
             removeCallbacks(reflowRunnable)
             if (selecting) cancelSelection()
             columns = nextColumns
-            reparse()
+            resizeParserRows()
             scrollLine = maxScroll().toFloat()
         } else if (height != oldHeight) {
             removeCallbacks(reflowRunnable)
@@ -534,18 +585,21 @@ class TerminalView(context: Context) : View(context) {
 
     private fun lineHeightPx() = paint.textSize * lineHeightScale
 
-    private fun updateMetrics(reparse: Boolean) {
+    private fun updateMetrics() {
         paint.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, fontSizeSp, resources.displayMetrics)
         regularTypeface = AppFonts.terminal(context, terminalFont)
         boldTypeface = AppFonts.terminal(context, terminalFont, isBold = true)
         paint.typeface = regularTypeface
         paint.fontFeatureSettings = if (ligatures) "liga,clig,calt" else "-liga,-clig,-calt"
         cellWidth = paint.measureText("M").coerceAtLeast(1f)
-        val nextColumns = floor((width - paddingLeft - paddingRight).coerceAtLeast(1) / cellWidth).toInt().coerceAtLeast(2)
-        val columnsChanged = nextColumns != columns
-        columns = nextColumns
+        if (width > 0) {
+            val nextColumns = floor((width - paddingLeft - paddingRight).coerceAtLeast(1) / cellWidth).toInt().coerceAtLeast(2)
+            if (nextColumns != columns) {
+                columns = nextColumns
+                resizeParserRows()
+            }
+        }
         setBackgroundColor(scheme.background)
-        if (reparse || columnsChanged) reparse()
         scrollLine = scrollLine.coerceIn(0f, maxScroll().toFloat())
         lastReportedSize = emptyList()
         reportTerminalSize()
@@ -562,17 +616,14 @@ class TerminalView(context: Context) : View(context) {
         }
     }
 
-    private fun reparse() {
+    private fun resizeParserRows() = refreshBoundState()
+
+    private fun refreshBoundState() {
         val rows = floor(height.coerceAtLeast(1) / lineHeightPx()).toInt().coerceAtLeast(1)
-        grid = AnsiTerminalParser(
-            columns = columns,
-            scheme = scheme,
-            screenRows = rows,
-            initialBracketedPaste = bracketedPasteMode,
-            initialApplicationCursor = applicationCursorMode,
-        ).parse(rawText)
-        bracketedPasteMode = grid.bracketedPaste
-        applicationCursorMode = grid.applicationCursor
+        boundSessionState?.let { state ->
+            state.configure(columns, rows, scheme)
+            grid = state.snapshot()
+        }
     }
 
     private fun TerminalCell.isAsciiWidthOne(): Boolean = width == 1 && text.all { it.code in 0x20..0x7e }
