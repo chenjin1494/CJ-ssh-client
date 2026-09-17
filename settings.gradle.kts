@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AndroidSSHClient"
+rootProject.name = "CJ-ssh-client"
 include(":app")

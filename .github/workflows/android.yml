@@ -36,7 +36,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: AndroidSSHClient-debug-${{ github.ref_name }}
+          name: CJ-ssh-client-debug-${{ github.ref_name }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
@@ -79,15 +79,15 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           ACTUAL=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$ACTUAL" = "$EXPECTED_SIGNER_SHA256"
-          cp "$APK" "AndroidSSHClient-${GITHUB_REF_NAME}.apk"
+          cp "$APK" "CJ-ssh-client-${GITHUB_REF_NAME}.apk"
       - name: Upload signed APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AndroidSSHClient-${{ github.ref_name }}
-          path: AndroidSSHClient-${{ github.ref_name }}.apk
+          name: CJ-ssh-client-${{ github.ref_name }}
+          path: CJ-ssh-client-${{ github.ref_name }}.apk
           if-no-files-found: error
       - name: Publish signed GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: AndroidSSHClient-${{ github.ref_name }}.apk
+          files: CJ-ssh-client-${{ github.ref_name }}.apk

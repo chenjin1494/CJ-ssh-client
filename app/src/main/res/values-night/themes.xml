@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.AndroidSSHClient" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Theme.CJSshClient" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:navigationBarColor">#101315</item>
         <item name="android:statusBarColor">#101315</item>

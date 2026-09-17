@@ -1,6 +1,8 @@
-# AndroidSSHClient
+# CJ-ssh-client
 
-A native Android 8.0+ SSH client built with Kotlin, Jetpack Compose, Material 3, Hilt, Room, DataStore, Coroutines/Flow and mwiede/JSch.
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+CJ-ssh-client is a native Android 8.0+ SSH client built with Kotlin, Jetpack Compose, Material 3, Hilt, Room, DataStore, Coroutines/Flow and mwiede/JSch.
 
 > Screenshots: add phone, tablet, terminal and SFTP captures under `docs/screenshots/` after installing the app on a device.
 
@@ -15,7 +17,7 @@ A native Android 8.0+ SSH client built with Kotlin, Jetpack Compose, Material 3,
 - Loopback-only local port forwarding (`127.0.0.1`)
 - Ed25519/RSA key generation, encrypted import, public-key export and deletion
 - Dynamic color, light/dark/system themes, seven terminal schemes, importable TTF/OTF terminal fonts, size/line-height/ligature settings
-- Adaptive bottom navigation/navigation rail for phones, landscape, tablets and foldables
+- Persistent left navigation rail across phones, landscape, tablets and foldables
 
 ## Architecture
 
@@ -113,7 +115,7 @@ Download ordinary builds from the workflow run's **Artifacts** section and relea
 
 ## Publishing the repository
 
-`scripts/publish.sh` creates the initial commit when needed. If authenticated GitHub CLI is available, it creates/pushes `AndroidSSHClient`; when an `origin` already exists it pushes `main`. Otherwise it prints the exact manual push command.
+`scripts/publish.sh` creates the initial commit when needed. If authenticated GitHub CLI is available, it creates/pushes `CJ-ssh-client`; when an `origin` already exists it pushes `main`. Otherwise it prints the exact manual push command.
 
 ```bash
 chmod +x scripts/publish.sh

@@ -15,7 +15,7 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AndroidSSHClient.Starting">
+        android:theme="@style/Theme.CJSshClient.Starting">
         <activity
             android:name=".MainActivity"
             android:exported="true"
