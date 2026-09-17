@@ -68,6 +68,8 @@ class SshManager @Inject constructor(
     private val knownHosts: KnownHostDao,
     private val logger: SecureLogger,
 ) {
+    private data class PtySize(val columns: Int, val rows: Int, val width: Int, val height: Int)
+
     private data class Runtime(
         val tabId: String,
         val connectionId: Long,
@@ -76,6 +78,7 @@ class SshManager @Inject constructor(
         var input: OutputStream? = null,
         var reader: Job? = null,
         val forwards: MutableSet<Int> = mutableSetOf(),
+        @Volatile var ptySize: PtySize = PtySize(120, 36, 0, 0),
         var intentionalClose: Boolean = false,
     )
 
@@ -102,7 +105,7 @@ class SshManager @Inject constructor(
                 val session = establish(credentials, tabId)
                 runtime.session = session
                 val shell = session.openChannel("shell") as ChannelShell
-                shell.setPtyType("xterm-256color", 120, 36, 0, 0)
+                runtime.ptySize.let { shell.setPtyType("xterm-256color", it.columns, it.rows, it.width, it.height) }
                 shell.setEnv("TERM", "xterm-256color")
                 val output = shell.outputStream
                 val input = shell.inputStream
@@ -196,7 +199,14 @@ class SshManager @Inject constructor(
     }
 
     fun resize(tabId: String, columns: Int, rows: Int, width: Int, height: Int) {
-        runtimes[tabId]?.shell?.setPtySize(columns, rows, width, height)
+        runtimes[tabId]?.let { runtime ->
+            val size = PtySize(columns.coerceAtLeast(2), rows.coerceAtLeast(1), width.coerceAtLeast(0), height.coerceAtLeast(0))
+            runtime.ptySize = size
+            scope.launch {
+                runCatching { runtime.shell?.setPtySize(size.columns, size.rows, size.width, size.height) }
+                    .onFailure { logger.warn("pty_resize_failed", it) }
+            }
+        }
     }
 
     fun reconnect(tabId: String) {

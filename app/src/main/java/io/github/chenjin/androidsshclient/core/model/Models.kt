@@ -2,7 +2,7 @@ package io.github.chenjin.androidsshclient.core.model
 
 enum class AuthType { PASSWORD, PRIVATE_KEY, PRIVATE_KEY_PASSWORD }
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
-enum class TerminalFont { FIRA_CODE, JETBRAINS_MONO, SYSTEM_MONO }
+enum class TerminalFont { FIRA_CODE, JETBRAINS_MONO, SYSTEM_MONO, CUSTOM }
 enum class LogLevel { ERROR, WARN, INFO, DEBUG }
 
 data class ConnectionProfile(
@@ -43,6 +43,8 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
     val terminalFont: TerminalFont = TerminalFont.FIRA_CODE,
+    val customFontName: String? = null,
+    val customFontRevision: Long = 0,
     val fontSize: Float = 14f,
     val lineHeight: Float = 1.2f,
     val ligatures: Boolean = true,

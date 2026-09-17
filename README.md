@@ -9,12 +9,12 @@ A native Android 8.0+ SSH client built with Kotlin, Jetpack Compose, Material 3,
 - Connection create/edit/delete/search, swipe delete and long-press multi-select
 - Password, private-key and private-key plus password authentication
 - Strict SSH host-key verification with explicit SHA256 trust-on-first-use; changed keys are blocked
-- Multi-tab ANSI/VT100 terminal with 16 colors, scroll, pinch font scaling, clipboard actions and Ctrl/Alt/Esc/Tab/arrow keys
+- Multi-tab ANSI/VT terminal with cell-accurate CJK/Nerd Font layout, ANSI 16/xterm-256/TrueColor foregrounds and backgrounds, scroll, pinch scaling, clipboard actions and Ctrl/Alt/Esc/Tab/arrow keys
 - Optional reconnect and a `specialUse` foreground service for user-started persistent sessions
 - SFTP browse, SAF upload/download, delete and rename
 - Loopback-only local port forwarding (`127.0.0.1`)
 - Ed25519/RSA key generation, encrypted import, public-key export and deletion
-- Dynamic color, light/dark/system themes, terminal schemes, font/size/line-height/ligature settings
+- Dynamic color, light/dark/system themes, seven terminal schemes, importable TTF/OTF terminal fonts, size/line-height/ligature settings
 - Adaptive bottom navigation/navigation rail for phones, landscape, tablets and foldables
 
 ## Architecture
@@ -74,7 +74,7 @@ Runtime font assets live in `app/src/main/assets/fonts/`:
 - Source Han Sans SC: Regular and Bold from [Adobe Source Han Sans](https://github.com/adobe-fonts/source-han-sans/releases), subset to Latin, punctuation, CJK extensions, Unified Ideographs and full-width forms with `pyftsubset`.
 - `LICENSE-FiraCode.txt` and `LICENSE-SourceHanSans.txt` preserve the SIL Open Font License notices.
 
-`core/ui/font/AppFonts.kt` loads fonts asynchronously from `Application`. On API 29+ it constructs a real `Typeface.CustomFallbackBuilder` chain with Fira Code first and Source Han Sans SC second; API 26-28 uses Fira Code plus Android shaping fallback. The native terminal Canvas uses the same chain, preserves Nerd Font glyphs, and enables/disables `liga` through `Paint.fontFeatureSettings`. Replace the font files using the same names, then clean and rebuild.
+`core/ui/font/AppFonts.kt` loads fonts asynchronously from `Application`. On API 29+ it constructs a real `Typeface.CustomFallbackBuilder` chain with Fira Code first and Source Han Sans SC second; API 26-28 uses Fira Code plus Android shaping fallback. The settings screen can import a TTF/OTF file up to 20 MB into private app storage; API 29+ also chains that custom face to Source Han Sans SC. The native terminal uses fixed cell coordinates, treats CJK/emoji as double-width and Nerd Font PUA glyphs as single-width, and enables/disables `liga` through `Paint.fontFeatureSettings`.
 
 ## Security model
 
@@ -122,7 +122,7 @@ chmod +x scripts/publish.sh
 
 ## Known limitations
 
-The built-in terminal intentionally implements the high-value VT100/ANSI subset (SGR colors and common CSI control filtering), not every DEC private mode. Complex full-screen applications may require a future integration with a compatible full terminal emulator. Host-key rotation currently requires explicit data maintenance rather than in-app replacement, by design. Integration tests against a disposable SSH server and physical API 26/35 devices are recommended before production rollout.
+The built-in terminal implements the shell-focused VT/ANSI subset, including cursor movement, erase commands, SGR attributes, xterm-256 colors, TrueColor, OSC filtering and live PTY sizing. It does not yet implement every DEC private mode or alternate-screen behavior; complex full-screen applications may require a future integration with a complete terminal engine. Host-key rotation currently requires explicit data maintenance rather than in-app replacement, by design. Integration tests against a disposable SSH server and physical API 26/35 devices are recommended before production rollout.
 
 ## License
 

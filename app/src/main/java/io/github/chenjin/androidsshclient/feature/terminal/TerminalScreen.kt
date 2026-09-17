@@ -33,8 +33,8 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +64,11 @@ fun TerminalScreen(
     val active = tabs.firstOrNull { it.id == selected } ?: tabs.lastOrNull()
     LaunchedEffect(active?.id) { viewModel.selectedId.value = active?.id }
     val view = LocalView.current
-    SideEffect { view.keepScreenOn = settings.keepScreenOn }
+    DisposableEffect(view, settings.keepScreenOn) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = settings.keepScreenOn
+        onDispose { view.keepScreenOn = previous }
+    }
 
     if (active == null) {
         Column(
@@ -106,7 +110,10 @@ fun TerminalScreen(
         AndroidView(
             factory = { context -> TerminalView(context) },
             update = { terminal ->
-                terminal.configure(settings.fontSize, settings.lineHeight, settings.ligatures, settings.terminalFont)
+                terminal.setTerminalSizeListener(active.id) { columns, rows, width, height ->
+                    viewModel.resize(active.id, columns, rows, width, height)
+                }
+                terminal.configure(settings.fontSize, settings.lineHeight, settings.ligatures, settings.terminalFont, settings.terminalScheme, settings.customFontRevision)
                 terminal.setTerminalText(active.transcript)
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
